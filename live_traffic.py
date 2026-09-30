@@ -2,6 +2,14 @@
 import warnings
 warnings.filterwarnings('ignore')
 
+import os
+os.environ["YOLO_VERBOSE"] = "False"
+
+import warnings
+warnings.filterwarnings("ignore")
+
+from ultralytics import YOLO
+
 """
 Live Traffic Intelligence  -  one script, one loop, works on files, webcams and RTSP streams.
 
@@ -30,6 +38,8 @@ import sys
 import threading
 import time
 from collections import Counter, deque
+
+import json
 
 import cv2
 import numpy as np
@@ -433,6 +443,26 @@ LOG_COLS = ["t", "count", "car", "motorcycle", "bus", "truck", "unique", "flow_p
             "level"] + FEATURES + ["pred_score", "pred_clear", "incident_prob"]
 
 
+
+JSON_FILE = "Het_Patel/traffic_data.json"
+
+
+def save_to_json(data):
+    if os.path.exists(JSON_FILE):
+        try:
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                records = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            records = []
+    else:
+        records = []
+
+    records.append(data)
+
+    with open(JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(records, f, indent=2)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source", required=True, help="video file, camera index (0), or rtsp/http URL")
@@ -454,6 +484,9 @@ def main():
     ap.add_argument("--log", default=None, help="write 1 Hz feature log CSV (training data for TrafficNet)")
     ap.add_argument("--max-frames", type=int, default=0)
     a = ap.parse_args()
+    # Create/clear JSON file for this run
+    with open(JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump([], f)
 
     if a.device == "auto":
         try:
@@ -509,6 +542,43 @@ def main():
                       f"{m['mean_kmh']:>4.0f}   {m['queue']:>4} | {fc['level']:<7}{fc['score']:>5.1f} [{fc['src'][:4]}] | "
                       f"{clr:>8}  | {('YES: ' + m['inc_reason']) if m['incident'] else 'no':<8} | "
                       f"{perf['fps']:.1f}fps {perf['total']:.0f}ms", flush=True)
+
+                                # Save current traffic data to JSON
+                json_data = {
+                    "time": mmss(ts),
+                    "vehicles": {
+                        "total": m["count"],
+                        "car": bc["car"],
+                        "motorcycle": bc["motorcycle"],
+                        "bus": bc["bus"],
+                        "truck": bc["truck"]
+                    },
+                    "unique_vehicles": m["unique"],
+                    "flow_per_min": m["flow_per_min"],
+                    "density": {
+                        "level": m["level"],
+                        "score": m["score"]
+                    },
+                    "speed_kmh": m["mean_kmh"],
+                    "queue": m["queue"],
+                    "forecast": {
+                        "level": fc["level"],
+                        "score": fc["score"],
+                        "source": fc["src"]
+                    },
+                    "clearance": clr,
+                    "incident": {
+                        "detected": m["incident"],
+                        "reason": m["inc_reason"] if m["incident"] else None
+                    },
+                    "performance": {
+                        "fps": perf["fps"],
+                        "total_ms": perf["total"]
+                    }
+                }
+
+                save_to_json(json_data)
+
                 if logw:
                     logw.writerow([f"{ts:.2f}", m["count"], bc["car"], bc["motorcycle"], bc["bus"], bc["truck"],
                                    m["unique"], f"{m['flow_per_min']:.1f}", f"{m['mean_kmh']:.1f}", m["queue"], m["level"],
