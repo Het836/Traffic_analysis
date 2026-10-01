@@ -4,3 +4,4 @@ brag-output
 yolov8n.pt
 traffic_data.csv
 traffic_data.json
+traffic_data_summary.json
